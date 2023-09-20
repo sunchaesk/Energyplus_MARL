@@ -127,13 +127,13 @@ class EnergyPlusRunner:
             # 'sky_diffuse_solar_sdr': ("Surface Outside Face Incident Sky Diffuse Solar Radiation Rate per Area", 'Window_sdr_1.unit1'),
             # 'site_direct_solar': ("Site Direct Solar Radiation Rate per Area", "Environment"),
             'site_horizontal_infrared': ("Site Horizontal Infrared Radiation Rate per Area", "Environment"),
+            'x': ('x', 'x')
         }
         self.var_handles: Dict[str, int] = {}
 
         self.meters = {
-            "elec_cooling": "Cooling:Electricity",
+            "elec_cooling": "Cooling:Electricity"
             # "elec_cooling": "Electricity:HVAC"
-            "test": "Electricity:HVAC"
         }
         self.meter_handles: Dict[str, int] = {}
 
@@ -651,7 +651,7 @@ class EnergyPlusEnv(gym.Env):
 
     @staticmethod
     def _compute_reward(obs: Dict[str, float], meter) -> float:
-        reward = -1 * meter['test']
+        reward = -1 * meter['elec_cooling']
         return reward
 
     @staticmethod
@@ -723,7 +723,7 @@ if __name__ == "__main__":
     print('action_space:', end='')
     print(env.action_space)
     print("OBS SHAPE:", env.observation_space.shape)
-
+    rewards = []
 
     for episode in range(1):
         state = env.reset()
@@ -731,15 +731,13 @@ if __name__ == "__main__":
         score = 0
         steps = 1
 
-        outdoor_temps = []
-
         while not done:
             print('------------------STEPS {}-----------------'.format(steps))
             action = env.action_space.sample()
-            # action = [0,0,0,0,0]
+            action = [60,60,60,60,60]
             ret = n_state, reward, done, truncated, info = env.step(action)
             score += reward
-            outdoor_temps.append(n_state[0])
+            rewards.append(reward)
             # print('cost', reward)
             print('obs', n_state, len(n_state))
             print('ACTION:', action)
@@ -750,11 +748,4 @@ if __name__ == "__main__":
             #score += info['energy_reward']
 
         print('score', score)
-        x = list(range(1000))
-        plt.plot(x, outdoor_temps[100:1100])
-        plt.show()
-
-
-# score -3400396163.1994467
-# score -4462774454.49727
-# score -5719191480.175058
+        print('reward min action', max(rewards), min(rewards))
