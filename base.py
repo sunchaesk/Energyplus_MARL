@@ -16,11 +16,13 @@ import random
 
 import gymnasium as gym
 import numpy as np
-from gymnasium.spaces import Discrete, Box
+from gymnasium.spaces import Discrete, Box, MultiDiscrete
 
-sys.path.insert(0, '/home/ck/Downloads/EnergyPlus-23.1.0-87ed9199d4-Linux-CentOS7.9.2009-x86_64/')
+sys.path.insert(0, '/home/ck/Building/EnergyPlus-23.1.0-87ed9199d4-Linux-CentOS7.9.2009-x86_64/')
 from pyenergyplus.api import EnergyPlusAPI
 from pyenergyplus.datatransfer import DataExchange
+
+import matplotlib.pyplot as plt
 
 
 class EnergyPlusRunner:
@@ -49,14 +51,45 @@ class EnergyPlusRunner:
         # below is declaration of variables, meters and actuators
         # this simulation will interact with
         self.variables = {
+            # global variables / environment variables
+            "ground_temp" : ("Site Ground Temperature", "Environment"),
             "outdoor_temp" : ("Site Outdoor Air Drybulb Temperature", "Environment"),
-            "indoor_temp_living" : ("Zone Air Temperature", 'living_unit1'),
-            "mean_radiant_temperature_living": ("Zone Mean Radiant Temperature", "living_unit1"),
-            "relative_humidity_living": ("Zone Air Relative Humidity", "living_unit1"),
-            'sky_diffuse_solar_ldf': ("Surface Outside Face Incident Sky Diffuse Solar Radiation Rate per Area", 'Window_ldf_1.unit1'),
-            'sky_diffuse_solar_sdr': ("Surface Outside Face Incident Sky Diffuse Solar Radiation Rate per Area", 'Window_sdr_1.unit1'),
+            "outdoor_relative_humidity" : ("Site Outdoor Air Relative Humidity", "Environment"),
             'site_direct_solar': ("Site Direct Solar Radiation Rate per Area", "Environment"),
             'site_horizontal_infrared': ("Site Horizontal Infrared Radiation Rate per Area", "Environment"),
+            'attic_temp': ("Zone Air Temperature", "Attic"),
+
+            # Zone 1: Core_ZN
+            "core_zn_indoor_temperature": ("Zone Air Temperature", "Core_ZN"),
+            "core_zn_relative_humidity": ("Zone Air Relative Humidity", "Core_ZN"),
+            "core_zn_windows_solar_radiation": ("Zone Windows Total Transmitted Solar Radiation Rate", "Core_ZN"), # test
+            "core_zn_windows_heat_gain_rate": ("Zone Windows Total Heat Gain Rate", "Core_ZN"), # test
+            # Zone 2: Perimeter_ZN_1
+            "perimeter_zn_1_indoor_temperature": ("Zone Air Temperature", "Perimeter_ZN_1"),
+            "perimeter_zn_1_relative_humidity": ("Zone Air Relative Humidity", "Perimeter_ZN_1"),
+            "perimeter_zn_1_windows_solar_radiation": ("Zone Windows Total Transmitted Solar Radiation Rate", "Perimeter_ZN_1"),
+            "perimeter_zn_1_windows_heat_gain_rate": ("Zone Windows Total Heat Gain Rate", "Perimeter_ZN_1"),
+            # Zone 3: Perimeter_ZN_2
+            "perimeter_zn_2_indoor_temperature": ("Zone Air Temperature", "Perimeter_ZN_2"),
+            "perimeter_zn_2_relative_humidity": ("Zone Air Relative Humidity", "Perimeter_ZN_2"),
+            "perimeter_zn_2_windows_solar_radiation": ("Zone Windows Total Transmitted Solar Radiation Rate", "Perimeter_ZN_2"),
+            "perimeter_zn_2_windows_heat_gain_rate": ("Zone Windows Total Heat Gain Rate", "Perimeter_ZN_2"),
+            # Zone 4: Perimeter_ZN_3
+            "perimeter_zn_3_indoor_temperature": ("Zone Air Temperature", "Perimeter_ZN_3"),
+            "perimeter_zn_3_relative_humidity": ("Zone Air Relative Humidity", "Perimeter_ZN_3"),
+            "perimeter_zn_3_windows_solar_radiation": ("Zone Windows Total Transmitted Solar Radiation Rate", "Perimeter_ZN_3"),
+            "perimeter_zn_3_windows_heat_gain_rate": ("Zone Windows Total Heat Gain Rate", "Perimeter_ZN_3"),
+            # Zone 5: Perimeter_ZN_4
+            "perimeter_zn_4_indoor_temperature": ("Zone Air Temperature", "Perimeter_ZN_4"),
+            "perimeter_zn_4_relative_humidity": ("Zone Air Relative Humidity", "Perimeter_ZN_4"),
+            "perimeter_zn_4_windows_solar_radiation": ("Zone Windows Total Transmitted Solar Radiation Rate", "Perimeter_ZN_4"),
+            "perimeter_zn_4_windows_heat_gain_rate": ("Zone Windows Total Heat Gain Rate", "Perimeter_ZN_4"),
+
+            # Zone Windows Total Heat Gain Rate
+
+            # "indoor_temp_living" : ("Zone Air Temperature", 'living_unit1'),
+            # #"mean_radiant_temperature_living": ("Zone Mean Radiant Temperature", "living_unit1"),
+            # "relative_humidity_living": ("Zone Air Relative Humidity", "living_unit1"),
         }
         self.var_handles: Dict[str, int] = {}
 
@@ -252,7 +285,8 @@ class EnergyPlusRunner:
             return
 
         next_action = self.act_queue.get()
-        assert all([isinstance(action_val, float) for action_val in next_action])
+        next_action = np.float32(next_action)
+        assert all([isinstance(action_val, np.float32) for action_val in next_action])
 
         self.x.set_actuator_value(
             state=state_argument,
@@ -430,11 +464,11 @@ class EnergyPlusEnv(gym.Env):
         actuator3 = self.energyplus_runner.x.get_actuator_value(state, self.energyplus_runner.actuator_handles['cooling_actuator_space3'])
         actuator4 = self.energyplus_runner.x.get_actuator_value(state, self.energyplus_runner.actuator_handles['cooling_actuator_space4'])
         actuator5 = self.energyplus_runner.x.get_actuator_value(state, self.energyplus_runner.actuator_handles['cooling_actuator_space5'])
-        # return {'a1': actuator1,
-        #         'a2': actuator2,
-        #         'a3': actuator3,
-        #         'a4': actuator4,
-        #         'a5': actuator5}
+        x = {'a1': actuator1,
+             'a2': actuator2,
+             'a3': actuator3,
+             'a4': actuator4,
+             'a5': actuator5}
         return [actuator1, actuator2, actuator3, actuator4, actuator5]
 
     def reset(
@@ -494,7 +528,7 @@ class EnergyPlusEnv(gym.Env):
             sys.exit(1)
 
         action_n = np.float32(action_n)
-        print('action_n', action_n)
+        #print('action_n', action_n)
 
         # enqueue action (received by EnergyPlus through dedicated callback)
         # then wait to get next observation.
@@ -515,6 +549,10 @@ class EnergyPlusEnv(gym.Env):
 
         obs_vec = np.array(list(obs.values()))
 
+        # get time
+        hour = self.energyplus_runner.x.hour(self.energyplus_runner.energyplus_state)
+        minute = self.energyplus_runner.x.minutes(self.energyplus_runner.energyplus_state)
+        day_of_week = self.energyplus_runner.x.day_of_week(self.energyplus_runner.energyplus_state)
 
         # update the self.last_next_state
         self.last_next_state = obs_vec
@@ -528,8 +566,9 @@ class EnergyPlusEnv(gym.Env):
             0.1, # air velocity
             obs_vec[3]
         )
-        reward_cost
+        reward_cost = self._compute_reward_cost(obs=obs, hour=hour, minute=minute, day_of_week=day_of_week, scaled_energy=reward_energy)
 
+        # set the reward type
         reward = reward_cost
 
         return obs_vec, reward, done, {}
@@ -727,35 +766,34 @@ class EnergyPlusEnv(gym.Env):
         return scaled_energy * cost_rate
 
 
-default_args = {'idf': '../in.idf',
-                'epw': '../weather.epw',
-                'csv': True,
+default_args = {'idf': './in.idf',
+                'epw': './weather.epw',
+                'csv': False,
                 'output': './output',
                 'timesteps': 1000000.0,
                 'num_workers': 2,
                 'annual': False,
-                'pmv_pickle_available': False,
-                'pmv_pickle_path': './pmv_cache.pickle'
                 }
 
+def graphing(data):
+    # 1. unpack data
+    pass
 
 if __name__ == "__main__":
     env = EnergyPlusEnv(default_args)
     print('action_space:', end='')
     print(env.action_space)
     print("OBS SHAPE:", env.observation_space.shape)
-    scores = []
     for episode in range(1):
         state = env.reset()
         done = False
         score = 0
 
         while not done:
-            action = env.action_space.sample()
-            print(action)
-            ret = n_state, reward, done, truncated, info = env.step(action)
-            print('actuators', info['actuators'])
-            score+=info['energy_reward']
+            action_n = env.action_space.sample()
+            print(action_n)
+            ret = n_state, reward, done, info = env.step(action_n)
+            print(n_state)
+            # print('actuators', info['actuators'])
+            # score+=info['energy_reward']
 
-        scores.append(score)
-        print("SCORES: ", scores)
