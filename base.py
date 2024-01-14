@@ -8,6 +8,7 @@ from queue import Queue, Empty, Full
 from datetime import datetime
 import math
 import time
+import pprint
 
 import random
 
@@ -84,21 +85,23 @@ class EnergyPlusRunner:
             "perimeter_zn_4_relative_humidity": ("Zone Air Relative Humidity", "Perimeter_ZN_4"),
             "perimeter_zn_4_windows_solar_radiation": ("Zone Windows Total Transmitted Solar Radiation Rate", "Perimeter_ZN_4"),
             "perimeter_zn_4_windows_heat_gain_rate": ("Zone Windows Total Heat Gain Rate", "Perimeter_ZN_4"),
-
-            # Zone Windows Total Heat Gain Rate
-
-            # "indoor_temp_living" : ("Zone Air Temperature", 'living_unit1'),
-            # #"mean_radiant_temperature_living": ("Zone Mean Radiant Temperature", "living_unit1"),
-            # "relative_humidity_living": ("Zone Air Relative Humidity", "living_unit1"),
         }
+        #print(self.variables)
         self.var_handles: Dict[str, int] = {}
+
+        # variables_key_to_index list
+        self.variables_key_to_index: Dict[str, int] = {}
+        variable_handles = list(self.variables.keys())
+        for i in range(len(variable_handles)):
+            self.variables_key_to_index[variable_handles[i]] = i
+
 
         self.meters = {
             #"elec_hvac": "Electricity:HVAC",
             #"elec_heating": "Heating:Electricity",
             "elec_cooling": "Cooling:Electricity",
             #'elec_facility': "Electricity:Facility",
-            'test': "Electricity:HVAC"
+            'elec_hvac': "Electricity:HVAC"
         }
         self.meter_handles: Dict[str, int] = {}
 
@@ -425,7 +428,7 @@ class EnergyPlusEnv(gym.Env):
         self.last_obs = {}
 
         action_np_arr = np.tile([61], 5)
-        self.action_space: Discrete = MultiDiscrete(action_np_arr)
+        self.action_space: MultiDiscrete = MultiDiscrete(action_np_arr)
 
         self.energyplus_runner: Optional[EnergyPlusRunner] = None
         self.meter_queue: Optional[Queue] = None
@@ -449,7 +452,7 @@ class EnergyPlusEnv(gym.Env):
         '''
         actions = []
         for i in range(len(action_n)):
-            x.append(self._rescale(action_n[i], old_range_min, old_range_max, new_range_min, new_range_max))
+            actions.append(self._rescale(action_n[i], old_range_min, old_range_max, new_range_min, new_range_max))
 
         return np.array(actions)
 
@@ -528,7 +531,9 @@ class EnergyPlusEnv(gym.Env):
             sys.exit(1)
 
         action_n = np.float32(action_n)
-        #print('action_n', action_n)
+        action_n = self._rescale_n(action_n, 0, self.action_space.nvec[0], 20, 26) # nvec[0] cause all i of MultiDiscrete have same range
+        # print(self.action_space.nvec[0])
+        # print('action_n', action_n)
 
         # enqueue action (received by EnergyPlus through dedicated callback)
         # then wait to get next observation.
@@ -538,7 +543,7 @@ class EnergyPlusEnv(gym.Env):
         # timeout value can be increased if E+ warmup period is longer or if step takes longer
         timeout = 2
         try:
-            self.act_queue.put(action, timeout=timeout)
+            self.act_queue.put(action_n, timeout=timeout)
             self.last_obs = obs = self.obs_queue.get(timeout=timeout)
             self.last_meter = meter = self.meter_queue.get(timeout=timeout)
         except (Full, Empty):
@@ -546,8 +551,23 @@ class EnergyPlusEnv(gym.Env):
             obs = self.last_obs
             meter = self.last_meter
 
-
+        # process obs
+        handle_to_obs_dict = {}
         obs_vec = np.array(list(obs.values()))
+        variable_handle_to_index_dict = self.energyplus_runner.variables_key_to_index
+        variable_handle_to_index_dict_keys = list(variable_handle_to_index_dict.keys())
+        for key in variable_handle_to_index_dict_keys:
+            handle_to_obs_dict[key] = obs_vec[variable_handle_to_index_dict[key]]
+
+        # fetch environment set actuator values
+        actuator_values = self.retrieve_actuators()
+        actuator_values_dict = {
+            'Core_ZN_cooling_setpoint': actuator_values[0],
+            'Perimeter_ZN_1_cooling_setpoint': actuator_values[1],
+            'Perimeter_ZN_2_cooling_setpoint': actuator_values[2],
+            'Perimeter_ZN_3_cooling_setpoint': actuator_values[3],
+            'Perimeter_ZN_4_cooling_setpoint': actuator_values[4],
+        }
 
         # get time
         hour = self.energyplus_runner.x.hour(self.energyplus_runner.energyplus_state)
@@ -560,6 +580,7 @@ class EnergyPlusEnv(gym.Env):
         # compute energy reward
         reward_energy = self._compute_reward_energy(meter)
         # compute thermal comfort reward
+        # DEPRECATED (thermal comfort stuff)
         reward_thermal_comfort = self._compute_reward_thermal_comfort(
             obs_vec[1],
             obs_vec[2],
@@ -571,7 +592,8 @@ class EnergyPlusEnv(gym.Env):
         # set the reward type
         reward = reward_cost
 
-        return obs_vec, reward, done, {}
+        return obs_vec, reward, done, {'handle_to_obs' : handle_to_obs_dict,
+                                       'actuators': actuator_values_dict}
 
     def render(self, mode="human"):
         # TODO? : maybe add IDF visualization option
@@ -779,6 +801,7 @@ def graphing(data):
     # 1. unpack data
     pass
 
+pp = pprint.PrettyPrinter(indent=4)
 if __name__ == "__main__":
     env = EnergyPlusEnv(default_args)
     print('action_space:', end='')
@@ -794,6 +817,8 @@ if __name__ == "__main__":
             print(action_n)
             ret = n_state, reward, done, info = env.step(action_n)
             print(n_state)
+            pp.pprint(info['handle_to_obs'])
+            pp.pprint(info['actuators'])
             # print('actuators', info['actuators'])
             # score+=info['energy_reward']
 
